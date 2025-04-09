@@ -35,6 +35,15 @@ class LabelViewManager : SimpleViewManager<LabelView>(),
     view?.setBackgroundColor(Color.parseColor(color))
   }
 
+  @ReactProp(name = "text")
+  override fun setText(view: LabelView?, text: String?) {
+    text?.let { view?.updateLabel(it) }
+  }
+
+  override fun updateLabel(view: LabelView?, text: String?) {
+    text?.let { view?.updateLabel(it) }
+  }
+
   companion object {
     const val NAME = "LabelView"
   }

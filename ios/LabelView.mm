@@ -15,6 +15,7 @@ using namespace facebook::react;
 
 @implementation LabelView {
     UIView * _view;
+    UILabel * _label;
 }
 
 + (ComponentDescriptorProvider)componentDescriptorProvider
@@ -29,6 +30,20 @@ using namespace facebook::react;
     _props = defaultProps;
 
     _view = [[UIView alloc] init];
+
+    // Create and configure the label
+    _label = [[UILabel alloc] init];
+    _label.translatesAutoresizingMaskIntoConstraints = NO; // Important for Auto Layout
+    [_view addSubview:_label];
+
+    // Add constraints to make label fill the view
+    [NSLayoutConstraint activateConstraints:@[
+        [_label.topAnchor constraintEqualToAnchor:_view.topAnchor],
+        [_label.bottomAnchor constraintEqualToAnchor:_view.bottomAnchor],
+        [_label.leadingAnchor constraintEqualToAnchor:_view.leadingAnchor],
+        [_label.trailingAnchor constraintEqualToAnchor:_view.trailingAnchor]
+    ]];
+
 
     self.contentView = _view;
   }
@@ -49,6 +64,12 @@ using namespace facebook::react;
     [super updateProps:props oldProps:oldProps];
 }
 
+- (void)handleCommand:(const NSString *)commandName args:(const NSArray *)args
+{
+  RCTLabelViewHandleCommand(self, commandName, args);
+}
+
+
 Class<RCTComponentViewProtocol> LabelViewCls(void)
 {
     return LabelView.class;
@@ -66,6 +87,12 @@ Class<RCTComponentViewProtocol> LabelViewCls(void)
     int b = (hex) & 0xFF;
 
     return [UIColor colorWithRed:r / 255.0f green:g / 255.0f blue:b / 255.0f alpha:1.0f];
+}
+
+- (void)updateLabel:(NSString *)text {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      self->_label.text = text;
+    });
 }
 
 @end
