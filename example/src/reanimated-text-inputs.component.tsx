@@ -1,10 +1,17 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { StyleSheet, FlatList, type ViewToken, TextInput, ScrollView } from 'react-native';
+import {
+  StyleSheet,
+  FlatList,
+  type ViewToken,
+  TextInput,
+  ScrollView,
+} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedProps,
 } from 'react-native-reanimated';
 import { useRoute } from '@react-navigation/native';
+import { useWebSocket } from './hooks/useWebSocket';
 
 const AnimatedTextInput = Animated.createAnimatedComponent(TextInput);
 
@@ -21,7 +28,7 @@ export default function ReanimatedTextInputs() {
     .fill(0)
     .map((_, index) => ({
       id: index.toString(),
-      text: index.toString(), // Initial text, will be updated via commands
+      text: 'Waiting for updates...', // Initial text
       color: `#${Math.floor(Math.random() * 16777215)
         .toString(16)
         .padStart(6, '0')}`,
@@ -36,7 +43,7 @@ export default function ReanimatedTextInputs() {
   // Update visible items based on FlatList callback
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: Array<ViewToken> }) => {
-      const newVisibleItemIds = new Set<string>(); // Explicit type
+      const newVisibleItemIds = new Set<string>();
       viewableItems.forEach((item) => {
         if (item.isViewable && item.item) {
           newVisibleItemIds.add(item.item.id);
@@ -50,38 +57,35 @@ export default function ReanimatedTextInputs() {
   // Configuration for onViewableItemsChanged callback
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 });
 
-  // Effect to update visible labels periodically via commands
-  useEffect(() => {
-    const interval = setInterval(() => {
+  // Handle WebSocket updates
+  const handleUpdates = useCallback(
+    (update: { securityId: string; price: string; timestamp: string }) => {
+      const displayText = `${update.securityId}: $${update.price} (${new Date(update.timestamp).toLocaleTimeString()})`;
+
       if (isVirtualized) {
         visibleItemIds.forEach((id) => {
           const sharedValue = textValues.current.get(id);
           if (sharedValue) {
-            const newText = (Math.random() * 100).toFixed(0);
-            // Update the shared value directly, triggering the animated prop update
-            sharedValue.value = newText;
+            sharedValue.value = displayText;
           }
         });
       } else {
-        // Update all items when not virtualized
         initialData.forEach((item) => {
           const sharedValue = textValues.current.get(item.id);
           if (sharedValue) {
-            const newText = (Math.random() * 100).toFixed(0);
-            // sharedValue.value = newText;
+            sharedValue.value = displayText;
           }
         });
       }
-    }, parseInt(updateInterval)); // Update interval
+    },
+    [visibleItemIds, isVirtualized, initialData]
+  );
 
-    // Clear interval on unmount
-    return () => clearInterval(interval);
-  }, [visibleItemIds, updateInterval, isVirtualized, initialData]);
+  // Connect to WebSocket
+  useWebSocket(handleUpdates, updateInterval);
 
-  // Update renderItem to use the new ReanimatedTextInputItem component
   const renderItem = useCallback(
     ({ item }: { item: { id: string; text: string; color: string } }) => {
-      // Pass the item data and the ref containing shared values to each item component
       return <ReanimatedTextInputItem item={item} textValuesRef={textValues} />;
     },
     []
@@ -105,7 +109,7 @@ export default function ReanimatedTextInputs() {
 
   return (
     <FlatList
-      data={initialData} // Use the static initial data
+      data={initialData}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
       style={styles.flatListStyle}
@@ -122,55 +126,46 @@ export default function ReanimatedTextInputs() {
   );
 }
 
-// New component for rendering each item using Reanimated
 const ReanimatedTextInputItem = ({
   item,
   textValuesRef,
 }: {
-  item: { id: string; text: string; color: string }; // Explicit item type
+  item: { id: string; text: string; color: string };
   textValuesRef: React.MutableRefObject<
     Map<string, Animated.SharedValue<string>>
   >;
 }) => {
-  // Get or create the shared value for this item's text
-  // Initialize with item.text, subsequent updates come from the shared value
   const text = useSharedValue<string>(
     textValuesRef.current.get(item.id)?.value ?? item.text
   );
 
-  // Store the shared value in the ref if it wasn't already there
-  // This ensures the value persists across renders/recycling
   if (!textValuesRef.current.has(item.id)) {
     textValuesRef.current.set(item.id, text);
   }
 
-  // Define animated props to link the shared value to the TextInput's text prop
   const animatedProps = useAnimatedProps(() => {
     return {
-      text: text.value, // Animate the 'text' prop
+      text: text.value,
       defaultValue: '',
-    } as any; // Type assertion needed for animating 'text' prop
-  }, [text]); // Dependency array includes the shared value
+    } as any;
+  }, [text]);
 
   useEffect(() => {
-    // Capture current values for cleanup
     const currentMap = textValuesRef.current;
     const currentItemId = item.id;
 
-    // Clean up the shared value from the map when the component unmounts
-    // This helps manage memory for items scrolled out of view
     return () => {
       currentMap.delete(currentItemId);
     };
-  }, [item.id, textValuesRef]); // Dependencies remain the same
+  }, [item.id, textValuesRef]);
 
   return (
     <AnimatedTextInput
-      key={item.id} // Key remains important for FlatList
-      style={[styles.label, { color: item.color }]} // Apply style and color
-      animatedProps={animatedProps} // Apply animated props
-      editable={false} // Text is controlled by animation, not user input
-      value={text.value} // Set initial value directly for SSR or non-JS environments
+      key={item.id}
+      style={[styles.label, { color: item.color }]}
+      animatedProps={animatedProps}
+      editable={false}
+      value={text.value}
     />
   );
 };
@@ -184,4 +179,4 @@ const styles = StyleSheet.create({
     height: 40,
     margin: 2,
   },
-}); 
+});

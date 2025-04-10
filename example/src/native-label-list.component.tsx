@@ -1,7 +1,9 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
+/* eslint-disable prettier/prettier */
+import { useRef, useState, useCallback } from 'react';
 import { StyleSheet, FlatList, type ViewToken, ScrollView } from 'react-native';
 import { LabelView, Commands } from 'react-native-label';
 import { useRoute } from '@react-navigation/native';
+import { useWebSocket } from './hooks/useWebSocket';
 
 export default function NativeLabelList() {
   const route = useRoute();
@@ -11,16 +13,15 @@ export default function NativeLabelList() {
     isVirtualized?: boolean;
   };
 
-  // Generate initial data structure only once
   const initialData = Array(parseInt(numItems))
-    .fill(0)
-    .map((_, index) => ({
-      id: index.toString(),
-      text: index.toString(), // Initial text, will be updated via commands
-      color: `#${Math.floor(Math.random() * 16777215)
-        .toString(16)
-        .padStart(6, '0')}`,
-    }));
+  .fill(0)
+  .map((_, index) => ({
+    id: index.toString(),
+    text: 'Waiting for updates...', // Initial text
+    color: `#${Math.floor(Math.random() * 16777215)
+      .toString(16)
+      .padStart(6, '0')}`,
+  }));
 
   // Ref to store LabelView component references, keyed by id
   const labelRefs = useRef(new Map());
@@ -33,8 +34,8 @@ export default function NativeLabelList() {
     ({ viewableItems }: { viewableItems: Array<ViewToken> }) => {
       const newVisibleItemIds = new Set();
       viewableItems.forEach((item) => {
-        if (item.isViewable && item.item) {
-          newVisibleItemIds.add(item.item.id);
+        if (item.isViewable && item.index !== undefined) {
+          newVisibleItemIds.add(`label-${item.index}`);
         }
       });
       setVisibleItemIds(newVisibleItemIds);
@@ -45,77 +46,80 @@ export default function NativeLabelList() {
   // Configuration for onViewableItemsChanged callback
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 });
 
-  // Effect to update visible labels periodically via commands
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (isVirtualized) {
-        visibleItemIds.forEach((id) => {
-          const labelRef = labelRefs.current.get(id);
-          if (labelRef) {
-            const newText = (Math.random() * 100).toFixed(0);
-            Commands.updateLabel(labelRef, newText);
-          }
-        });
-      } else {
-        // Update all items when not virtualized
-        initialData.forEach((item) => {
-          const labelRef = labelRefs.current.get(item.id);
-          if (labelRef) {
-            const newText = (Math.random() * 100).toFixed(0);
-            Commands.updateLabel(labelRef, newText);
-          }
-        });
-      }
-    }, parseInt(updateInterval)); // Update interval
+  // Handle WebSocket updates
+  const handleUpdates = useCallback((update: { securityId: string; price: string; timestamp: string }) => {
+    const displayText = `${update.securityId}: $${update.price} (${new Date(update.timestamp).toLocaleTimeString()})`;
 
-    // Clear interval on unmount
-    return () => clearInterval(interval);
-  }, [visibleItemIds, updateInterval, isVirtualized]);
+    if (isVirtualized) {
+      // Update only visible items in virtualized mode
+      visibleItemIds.forEach((id) => {
+        const labelRef = labelRefs.current.get(id);
+        if (labelRef) {
+          Commands.updateLabel(labelRef, displayText);
+        }
+      });
+    } else {
+      // Update all items in non-virtualized mode
+      labelRefs.current.forEach((labelRef) => {
+        Commands.updateLabel(labelRef, displayText);
+      });
+    }
+  }, [visibleItemIds, isVirtualized]);
 
-  const renderItem = useCallback(({ item }: { item: any }) => {
+  // Connect to WebSocket
+  useWebSocket(handleUpdates, updateInterval);
+
+  const renderItem = useCallback(({ index }: { index: number }) => {
+    const id = `label-${index}`;
+    const color = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
     return (
       <LabelView
-        key={item.id} // Key is important for FlatList
-        text={item.text} // Pass initial text
-        color={item.color}
+        key={id}
+        text="Waiting for updates..."
+        color={color}
         style={styles.label}
         ref={(el) => {
-          // Store or remove ref when component mounts/unmounts or is recycled
           if (el) {
-            labelRefs.current.set(item.id, el);
+            labelRefs.current.set(id, el);
           } else {
-            labelRefs.current.delete(item.id);
+            labelRefs.current.delete(id);
           }
         }}
       />
     );
-  }, []); // Empty dependency array because renderItem doesn't depend on component state/props
+  }, []);
 
   const keyExtractor = (item: any) => item.id;
 
   if (!isVirtualized) {
     return (
       <ScrollView style={styles.flatListStyle}>
-        {initialData.map((item) => (
-          <LabelView
-            key={item.id}
-            text={item.text}
-            color={item.color}
-            style={styles.label}
-            ref={(el) => {
-              if (el) {
-                labelRefs.current.set(item.id, el);
-              }
-            }}
-          />
-        ))}
+        {Array(parseInt(numItems))
+          .fill(0)
+          .map((_, index) => {
+            const id = `label-${index}`;
+            const color = `#${Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0')}`;
+            return (
+              <LabelView
+                key={id}
+                text="Waiting for updates..."
+                color={color}
+                style={styles.label}
+                ref={(el) => {
+                  if (el) {
+                    labelRefs.current.set(id, el);
+                  }
+                }}
+              />
+            );
+          })}
       </ScrollView>
     );
   }
 
   return (
     <FlatList
-      data={initialData} // Use the static initial data
+      data={initialData}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
       style={styles.flatListStyle}

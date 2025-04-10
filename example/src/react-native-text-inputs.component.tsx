@@ -1,6 +1,13 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
-import { StyleSheet, FlatList, type ViewToken, TextInput, ScrollView, unstable_batchedUpdates } from 'react-native';
+import {
+  StyleSheet,
+  FlatList,
+  type ViewToken,
+  TextInput,
+  ScrollView,
+} from 'react-native';
 import { useRoute } from '@react-navigation/native';
+import { useWebSocket } from './hooks/useWebSocket';
 
 export default function ReactNativeTextInputs() {
   const route = useRoute();
@@ -15,14 +22,14 @@ export default function ReactNativeTextInputs() {
     .fill(0)
     .map((_, index) => ({
       id: index.toString(),
-      text: index.toString(), // Initial text, will be updated via commands
+      text: 'Waiting for updates...', // Initial text
       color: `#${Math.floor(Math.random() * 16777215)
         .toString(16)
         .padStart(6, '0')}`,
     }));
 
-  // Ref to store LabelView component references, keyed by id
-  const labelRefs = useRef(new Map());
+  // Ref to store TextInput component references, keyed by id
+  const inputRefs = useRef(new Map());
 
   // State to keep track of currently visible item IDs
   const [visibleItemIds, setVisibleItemIds] = useState(new Set());
@@ -44,50 +51,49 @@ export default function ReactNativeTextInputs() {
   // Configuration for onViewableItemsChanged callback
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 });
 
-  // Effect to update visible labels periodically via commands
-  useEffect(() => {
-    const interval = setInterval(() => {
+  // Handle WebSocket updates
+  const handleUpdates = useCallback(
+    (update: { securityId: string; price: string; timestamp: string }) => {
+      const displayText = `${update.securityId}: $${update.price} (${new Date(update.timestamp).toLocaleTimeString()})`;
+
       if (isVirtualized) {
         visibleItemIds.forEach((id) => {
-          const labelRef = labelRefs.current.get(id);
-          if (labelRef) {
-            const newText = (Math.random() * 100).toFixed(0);
-            labelRef.setNativeProps({ text: newText });
+          const inputRef = inputRefs.current.get(id);
+          if (inputRef) {
+            inputRef.setNativeProps({ text: displayText });
           }
         });
       } else {
-        // Update all items when not virtualized
         initialData.forEach((item) => {
-          const labelRef = labelRefs.current.get(item.id);
-          if (labelRef) {
-            const newText = (Math.random() * 100).toFixed(0);
-            labelRef.setNativeProps({ text: newText });
+          const inputRef = inputRefs.current.get(item.id);
+          if (inputRef) {
+            inputRef.setNativeProps({ text: displayText });
           }
         });
       }
-    }, parseInt(updateInterval)); // Update interval
+    },
+    [visibleItemIds, isVirtualized, initialData]
+  );
 
-    // Clear interval on unmount
-    return () => clearInterval(interval);
-  }, [visibleItemIds, updateInterval, isVirtualized, initialData]);
+  // Connect to WebSocket
+  useWebSocket(handleUpdates, updateInterval);
 
   const renderItem = useCallback(({ item }: { item: any }) => {
     return (
       <TextInput
-        key={item.id} // Key is important for FlatList
-        defaultValue={item.text} // Use defaultValue for initial text in TextInput
-        style={[styles.label, { color: item.color }]} // Apply style and color
+        key={item.id}
+        defaultValue={item.text}
+        style={[styles.input, { color: item.color }]}
         ref={(el) => {
-          // Store or remove ref when component mounts/unmounts or is recycled
           if (el) {
-            labelRefs.current.set(item.id, el);
+            inputRefs.current.set(item.id, el);
           } else {
-            labelRefs.current.delete(item.id);
+            inputRefs.current.delete(item.id);
           }
         }}
       />
     );
-  }, []); // Empty dependency array because renderItem doesn't depend on component state/props
+  }, []);
 
   const keyExtractor = (item: any) => item.id;
 
@@ -98,10 +104,10 @@ export default function ReactNativeTextInputs() {
           <TextInput
             key={item.id}
             defaultValue={item.text}
-            style={[styles.label, { color: item.color }]}
+            style={[styles.input, { color: item.color }]}
             ref={(el) => {
               if (el) {
-                labelRefs.current.set(item.id, el);
+                inputRefs.current.set(item.id, el);
               }
             }}
           />
@@ -112,7 +118,7 @@ export default function ReactNativeTextInputs() {
 
   return (
     <FlatList
-      data={initialData} // Use the static initial data
+      data={initialData}
       renderItem={renderItem}
       keyExtractor={keyExtractor}
       style={styles.flatListStyle}
@@ -134,8 +140,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {},
-  label: {
+  input: {
     height: 40,
     margin: 2,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 8,
   },
-}); 
+});

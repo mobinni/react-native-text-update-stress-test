@@ -1,6 +1,13 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
-import { StyleSheet, FlatList, Text, type ViewToken, ScrollView} from 'react-native';
+import { useCallback, useState, useRef } from 'react';
+import {
+  StyleSheet,
+  FlatList,
+  Text,
+  type ViewToken,
+  ScrollView,
+} from 'react-native';
 import { useRoute } from '@react-navigation/native';
+import { useWebSocket } from './hooks/useWebSocket';
 
 export default function TextComponent() {
   const route = useRoute();
@@ -15,7 +22,7 @@ export default function TextComponent() {
     .fill(0)
     .map((_, index) => ({
       id: index.toString(),
-      text: index.toString(), // Initial text
+      text: 'Waiting for updates...', // Initial text
       color: `#${Math.floor(Math.random() * 16777215)
         .toString(16)
         .padStart(6, '0')}`,
@@ -48,10 +55,12 @@ export default function TextComponent() {
   // Configuration for onViewableItemsChanged callback
   const viewabilityConfig = useRef({ viewAreaCoveragePercentThreshold: 50 });
 
-  // Effect to update visible labels periodically
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Only update if there are visible items
+  // Handle WebSocket updates
+  const handleUpdates = useCallback(
+    (update: { securityId: string; price: string; timestamp: string }) => {
+      const displayText = `${update.securityId}: $${update.price} (${new Date(update.timestamp).toLocaleTimeString()})`;
+
+      // Only update if there are visible items in virtualized mode
       if (isVirtualized && visibleItemIdsRef.current.size === 0) return;
 
       // Create a new array reference to trigger re-render
@@ -59,17 +68,18 @@ export default function TextComponent() {
       let hasChanges = false;
 
       // Update only visible items when virtualized, or all items when not
-      const itemsToUpdate = isVirtualized ? visibleItemIdsRef.current : new Set(newData.map(item => item.id));
-      
+      const itemsToUpdate = isVirtualized
+        ? visibleItemIdsRef.current
+        : new Set(newData.map((item) => item.id));
+
       itemsToUpdate.forEach((id) => {
         const index = parseInt(id as string);
         const item = newData[index];
         if (index >= 0 && index < newData.length && item) {
-          const newText = (Math.random() * 100).toFixed(0);
-          if (item.text !== newText) {
+          if (item.text !== displayText) {
             newData[index] = {
               id: item.id,
-              text: newText,
+              text: displayText,
               color: item.color,
             };
             hasChanges = true;
@@ -82,11 +92,12 @@ export default function TextComponent() {
         dataRef.current = newData;
         setData(newData);
       }
-    }, parseInt(updateInterval)); // Update interval
+    },
+    [isVirtualized]
+  );
 
-    // Clear interval on unmount
-    return () => clearInterval(interval);
-  }, [updateInterval, isVirtualized]); // Empty dependency array since we use refs
+  // Connect to WebSocket
+  useWebSocket(handleUpdates, updateInterval);
 
   const renderItem = useCallback(({ item }: { item: (typeof data)[0] }) => {
     return (
@@ -140,4 +151,4 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
     fontSize: 16,
   },
-}); 
+});
